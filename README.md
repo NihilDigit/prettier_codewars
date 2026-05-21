@@ -10,6 +10,7 @@ https://greasyfork.org/scripts/579184-prettier-codewars
 
 - Fixes kata training header controls on medium-width screens.
 - Fixes profile Rank Breakdown layout on medium-width screens.
+- Hides Codewars promotion, partner, referral, and house ad blocks.
 - Uses local Maple Mono NF when available, falling back to Maple Mono webfont.
 - Enables CodeMirror line wrapping.
 - Tunes CodeMirror font size, line height, current line, and horizontal overflow.
@@ -37,10 +38,7 @@ Open your userscript manager's menu on Codewars. Prettier Codewars exposes menu 
 - Editor font size
 - Editor line height
 - Reset settings
-
-## Scope
-
-This public build does not hide Codewars promotions or ads. It focuses on layout, editor readability, and optional typing effects.
+- Hide promotions
 
 ## License
 

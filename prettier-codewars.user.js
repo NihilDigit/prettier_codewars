@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Prettier Codewars
 // @namespace    https://codewars.com/
-// @version      1.0.0
-// @description  Polish Codewars with cleaner training pages, better editor typography, responsive fixes, and subtle typing effects.
+// @version      1.1.0
+// @description  Polish Codewars with cleaner training pages, better editor typography, responsive fixes, subtle typing effects, and promotion cleanup.
 // @author       NihilDigit
 // @match        https://www.codewars.com/*
 // @match        https://codewars.com/*
@@ -18,10 +18,12 @@
   "use strict";
 
   const STYLE_ID = "cw-polish-style";
+  const HIDDEN_MARK = "data-cw-polish-hidden";
   const SPARKS_ID = "cw-polish-sparks";
   const STORAGE_PREFIX = "prettier-codewars:";
 
   const defaultConfig = {
+    hidePromotions: true,
     useMapleMono: true,
     tuneCodeMirror: true,
     lineWrapping: true,
@@ -32,6 +34,7 @@
   };
 
   const menuOptions = [
+    ["hidePromotions", "Hide promotions"],
     ["useMapleMono", "Maple Mono font"],
     ["tuneCodeMirror", "CodeMirror polish"],
     ["lineWrapping", "Line wrapping"],
@@ -85,6 +88,21 @@
 
   function buildCss() {
     return `
+    ${
+      config.hidePromotions
+        ? `
+    [data-cw-polish-hidden="true"] {
+      display: none !important;
+    }
+
+    .partner-display,
+    .promoted {
+      display: none !important;
+    }
+    `
+        : ""
+    }
+
     ${
       config.useMapleMono
         ? `
@@ -286,6 +304,32 @@
   `;
   }
 
+  const adSelectors = [
+    "#house_ad_display",
+    ".cw-ad",
+    ".ads-container",
+    "[id*='ad_display' i]",
+    "[id*='ad-container' i]",
+    "[class*='ad-container' i]",
+    "a[href*='/ads/']",
+    "a[href*='house_srv']",
+    "iframe[src*='ad' i]",
+    "ins.adsbygoogle",
+    ".partner-display",
+    ".promoted",
+    ".my-4.flex.flex-col.md\\:flex-row.space-y-4.md\\:space-y-0.md\\:space-x-4",
+    ".mt-4.flex.flex-col.md\\:flex-row.space-y-4.md\\:space-y-0.md\\:space-x-4"
+  ];
+
+  const classSetBlocklist = [
+    ["my-4", "flex", "flex-col", "md:flex-row", "space-y-4", "md:space-y-0", "md:space-x-4"],
+    ["mt-4", "flex", "flex-col", "md:flex-row", "space-y-4", "md:space-y-0", "md:space-x-4"],
+    ["description-footer", "flex", "flex-row"],
+    ["w-256", "max-w-full", "mx-auto", "my-4"],
+    ["partner-display"],
+    ["promoted"]
+  ];
+
   function injectStyle() {
     let style = document.getElementById(STYLE_ID);
     if (!style) {
@@ -325,6 +369,49 @@
       Object.entries(defaultConfig).forEach(([key, value]) => writeSetting(key, value, false));
       window.location.reload();
     });
+  }
+
+  function hide(node) {
+    if (node && node.nodeType === Node.ELEMENT_NODE) {
+      node.setAttribute(HIDDEN_MARK, "true");
+    }
+  }
+
+  function isProtected(element) {
+    return Boolean(
+      element.closest("html, body") === element ||
+        element.matches("main, #main_header, #trainer, #trainer *") ||
+        element.querySelector?.("#trainer")
+    );
+  }
+
+  function hideSafely(element) {
+    if (!element || isProtected(element)) return;
+    hide(element);
+  }
+
+  function nearestAdContainer(element) {
+    return (
+      element.closest(
+        "#house_ad_display, .ads-container, .cw-ad, aside, article, section:not(#trainer), .panel, div[class*='md:w-'], div[class*='w-full']"
+      ) ||
+      element
+    );
+  }
+
+  function removeAds(root = document) {
+    if (!config.hidePromotions) return;
+
+    for (const selector of adSelectors) {
+      root.querySelectorAll(selector).forEach((element) => hideSafely(nearestAdContainer(element)));
+    }
+
+    root.querySelectorAll("div").forEach((element) => {
+      if (classSetBlocklist.some((classSet) => classSet.every((name) => element.classList.contains(name)))) {
+        hideSafely(element);
+      }
+    });
+
   }
 
   function tuneEditors(root = document) {
@@ -515,12 +602,14 @@
   function boot() {
     registerSettingsMenu();
     injectStyle();
+    removeAds();
     tuneEditors();
     tuneDescriptionScroll();
 
     [100, 300, 800, 1500, 3000].forEach((delay) => {
       window.setTimeout(() => {
         injectStyle();
+        removeAds();
         tuneEditors();
         tuneDescriptionScroll();
       }, delay);
@@ -530,6 +619,7 @@
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
           if (node.nodeType === Node.ELEMENT_NODE) {
+            removeAds(node);
             tuneEditors(node);
             tuneDescriptionScroll(node);
           }
