@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prettier Codewars
 // @namespace    https://codewars.com/
-// @version      1.1.0
+// @version      1.2.0
 // @description  Polish Codewars with cleaner training pages, better editor typography, responsive fixes, subtle typing effects, and promotion cleanup.
 // @author       NihilDigit
 // @match        https://www.codewars.com/*
@@ -27,6 +27,8 @@
     useMapleMono: true,
     tuneCodeMirror: true,
     lineWrapping: true,
+    autoFormat: true,
+    lightweightAutocomplete: true,
     typingSparks: true,
     deleteAnnihilation: true,
     editorFontSize: "15px",
@@ -38,8 +40,125 @@
     ["useMapleMono", "Maple Mono font"],
     ["tuneCodeMirror", "CodeMirror polish"],
     ["lineWrapping", "Line wrapping"],
+    ["autoFormat", "AutoFormat"],
+    ["lightweightAutocomplete", "Lightweight autocomplete"],
     ["typingSparks", "Typing sparks"],
     ["deleteAnnihilation", "Delete annihilation"]
+  ];
+
+  const C_KEYWORDS = [
+    "auto",
+    "break",
+    "case",
+    "char",
+    "const",
+    "continue",
+    "default",
+    "do",
+    "double",
+    "else",
+    "enum",
+    "extern",
+    "float",
+    "for",
+    "goto",
+    "if",
+    "inline",
+    "int",
+    "long",
+    "register",
+    "restrict",
+    "return",
+    "short",
+    "signed",
+    "sizeof",
+    "static",
+    "struct",
+    "switch",
+    "typedef",
+    "union",
+    "unsigned",
+    "void",
+    "volatile",
+    "while"
+  ];
+
+  const C_STANDARD_WORDS = [
+    "EOF",
+    "FILE",
+    "NULL",
+    "SEEK_CUR",
+    "SEEK_END",
+    "SEEK_SET",
+    "bool",
+    "calloc",
+    "char",
+    "double",
+    "errno",
+    "exit",
+    "fclose",
+    "feof",
+    "ferror",
+    "fflush",
+    "fgets",
+    "fopen",
+    "fprintf",
+    "fputc",
+    "fputs",
+    "fread",
+    "free",
+    "fscanf",
+    "fseek",
+    "ftell",
+    "fwrite",
+    "getchar",
+    "int16_t",
+    "int32_t",
+    "int64_t",
+    "int8_t",
+    "intptr_t",
+    "malloc",
+    "max_align_t",
+    "memcmp",
+    "memcpy",
+    "memmove",
+    "memset",
+    "offsetof",
+    "printf",
+    "ptrdiff_t",
+    "putchar",
+    "puts",
+    "qsort",
+    "realloc",
+    "scanf",
+    "size_t",
+    "snprintf",
+    "sprintf",
+    "sscanf",
+    "stderr",
+    "stdin",
+    "stdout",
+    "strcat",
+    "strchr",
+    "strcmp",
+    "strcpy",
+    "strlen",
+    "strncmp",
+    "strncpy",
+    "strrchr",
+    "strstr",
+    "strtol",
+    "strtoul",
+    "uint16_t",
+    "uint32_t",
+    "uint64_t",
+    "uint8_t",
+    "uintptr_t",
+    "va_arg",
+    "va_end",
+    "va_list",
+    "va_start",
+    "void"
   ];
 
   function readSetting(key) {
@@ -197,6 +316,27 @@
     #description_area .description-content.p-4 {
       height: 100% !important;
       overflow: auto !important;
+    }
+
+    .CodeMirror-hints {
+      z-index: 2147483646 !important;
+      border: 1px solid rgb(255 255 255 / 14%) !important;
+      border-radius: 6px !important;
+      background: rgb(18 20 26 / 96%) !important;
+      box-shadow: 0 12px 30px rgb(0 0 0 / 35%) !important;
+      color: rgb(238 241 246 / 94%) !important;
+      font-family: "Maple Mono Web", "Maple Mono NF", "Maple Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+      font-size: 13px !important;
+    }
+
+    .CodeMirror-hint {
+      border-radius: 4px !important;
+      color: inherit !important;
+    }
+
+    li.CodeMirror-hint-active {
+      background: rgb(232 98 36 / 92%) !important;
+      color: white !important;
     }
 
     #cw-polish-sparks {
@@ -429,13 +569,333 @@
 
     mirrors.forEach((element) => {
       if (element.CodeMirror) {
-        element.CodeMirror.setOption("lineWrapping", config.lineWrapping);
-        element.CodeMirror.refresh();
+        tuneEditor(element.CodeMirror);
+        scheduleInitialAutoFormat(element.CodeMirror, element);
         if (config.typingSparks || config.deleteAnnihilation) {
           attachEffects(element.CodeMirror);
         }
       }
     });
+  }
+
+  function tuneEditor(cm) {
+    const optionsKey = [config.lineWrapping, 4, 4, false].join(":");
+
+    if (cm.__cwPolishOptionsKey !== optionsKey) {
+      cm.__cwPolishOptionsKey = optionsKey;
+      cm.setOption("lineWrapping", config.lineWrapping);
+      cm.setOption("indentUnit", 4);
+      cm.setOption("tabSize", 4);
+      cm.setOption("indentWithTabs", false);
+      cm.refresh();
+    }
+
+    attachEditorFeatures(cm);
+  }
+
+  function scheduleInitialAutoFormat(cm, element) {
+    if (!config.autoFormat || cm.__cwPolishInitialFormatted || !isCMode(cm) || !isSolutionEditor(element)) return;
+    cm.__cwPolishInitialFormatted = true;
+
+    window.setTimeout(() => {
+      if (!cm.getWrapperElement?.().isConnected) return;
+      autoFormat(cm);
+    }, 200);
+  }
+
+  function isSolutionEditor(element) {
+    return document.querySelector(".CodeMirror") === element;
+  }
+
+  function attachEditorFeatures(cm) {
+    if (cm.__cwPolishFeatures) return;
+    cm.__cwPolishFeatures = true;
+
+    const keyMap = {
+      Tab: (instance) => {
+        insertSpaces(instance, 4);
+        return true;
+      }
+    };
+
+    if (config.autoFormat) {
+      keyMap["Alt-Shift-F"] = (instance) => {
+        autoFormat(instance);
+        return true;
+      };
+    }
+
+    if (config.lightweightAutocomplete && isCMode(cm)) {
+      keyMap["Ctrl-Space"] = (instance) => {
+        showIdentifierHints(instance, true);
+        return true;
+      };
+
+      cm.on("inputRead", (instance, change) => {
+        if (instance.state.completionActive || !change.text || change.text.length !== 1) return;
+        if (!/^[A-Za-z_$]$/.test(change.text[0])) return;
+
+        const prefix = currentPrefix(instance);
+        if (prefix.length >= 2) {
+          showIdentifierHints(instance, false);
+        }
+      });
+    }
+
+    cm.addKeyMap(keyMap);
+  }
+
+  function insertSpaces(cm, count) {
+    const spaces = " ".repeat(count);
+
+    if (typeof cm.replaceSelections === "function" && typeof cm.listSelections === "function") {
+      cm.replaceSelections(cm.listSelections().map(() => spaces), "end", "+input");
+      return;
+    }
+
+    cm.replaceSelection(spaces, "end", "+input");
+  }
+
+  function autoFormat(cm) {
+    if (!cm || typeof cm.indentLine !== "function") return;
+
+    const cursor = cm.getCursor();
+    const scroll = cm.getScrollInfo();
+
+    if (isCMode(cm)) {
+      const formatted = formatKAndRC(cm.getValue());
+      if (formatted !== cm.getValue()) {
+        cm.setValue(formatted);
+      }
+    }
+
+    cm.operation(() => {
+      for (let line = cm.firstLine(); line <= cm.lastLine(); line += 1) {
+        cm.indentLine(line, "smart");
+      }
+    });
+
+    cm.setCursor(cursor);
+    cm.scrollTo(scroll.left, scroll.top);
+  }
+
+  function formatKAndRC(text) {
+    const normalized = text.replace(/\t/g, "    ");
+    const lines = normalized.split("\n");
+    const output = [];
+
+    lines.forEach((line) => {
+      const leading = line.match(/^\s*/)[0];
+      const trimmed = line.trim();
+
+      if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//") || trimmed.startsWith("*")) {
+        output.push(line);
+        return;
+      }
+
+      if (trimmed === "{" && output.length > 0) {
+        const previous = output[output.length - 1];
+        const previousTrimmed = previous.trim();
+
+        if (isKAndRBraceLine(previousTrimmed)) {
+          output[output.length - 1] = `${previous.replace(/\s*$/, "")} {`;
+          return;
+        }
+      }
+
+      if (/^else\b/.test(trimmed) && output.length > 0 && output[output.length - 1].trim() === "}") {
+        output[output.length - 1] = `${output[output.length - 1].replace(/\s*$/, "")} ${trimmed}`;
+        return;
+      }
+
+      output.push(line.replace(/^(\s*)}\s*else\b/, "$1} else"));
+    });
+
+    return output.join("\n");
+  }
+
+  function isKAndRBraceLine(beforeBrace) {
+    return (
+      /^(?:if|for|while|switch)\s*\(.*\)$/.test(beforeBrace) ||
+      /^}?\s*else(?:\s+if\s*\(.*\))?$/.test(beforeBrace) ||
+      /^do$/.test(beforeBrace) ||
+      /^(?:[A-Za-z_]\w*[\w\s*]*\s+)?[A-Za-z_]\w*\s*\([^;]*\)$/.test(beforeBrace) ||
+      /^(?:struct|union|enum)\b.*$/.test(beforeBrace)
+    );
+  }
+
+  function showIdentifierHints(cm, explicit) {
+    if (!cm || !isCMode(cm) || typeof cm.showHint !== "function") return;
+
+    const hints = buildIdentifierHints(cm);
+    if (!explicit && hints.list.length < 2) return;
+
+    cm.showHint({
+      hint: () => hints,
+      completeSingle: false,
+      closeCharacters: /[\s()[\]{};:>,]/,
+      customKeys: {
+        Tab: (_editor, handle) => handle.pick(),
+        Enter: (_editor, handle) => handle.pick(),
+        Esc: (_editor, handle) => handle.close(),
+        Up: (_editor, handle) => handle.moveFocus(-1),
+        Down: (_editor, handle) => handle.moveFocus(1)
+      }
+    });
+  }
+
+  function buildIdentifierHints(cm) {
+    const cursor = cm.getCursor();
+    const prefix = currentPrefix(cm);
+    const from = { line: cursor.line, ch: cursor.ch - prefix.length };
+    const to = { line: cursor.line, ch: cursor.ch };
+    const candidates = buildCompletionCandidates(cm, cursor);
+    const seen = new Set();
+
+    const list = candidates
+      .filter((word) => {
+        const normalized = word.toLowerCase();
+        if (seen.has(normalized)) return false;
+        seen.add(normalized);
+        return word.length > 1 && word !== prefix && (!prefix || normalized.startsWith(prefix.toLowerCase()));
+      })
+      .slice(0, 80);
+
+    return { list, from, to };
+  }
+
+  function buildCompletionCandidates(cm, cursor) {
+    const text = cm.getValue();
+    const cache = cm.__cwPolishCompletionCache;
+
+    if (cache && cache.text === text && cache.line === cursor.line) {
+      return cache.candidates;
+    }
+
+    const candidates = [
+      ...collectLocalIdentifiers(cm, cursor),
+      ...collectPreprocessorIdentifiers(text),
+      ...C_STANDARD_WORDS,
+      ...C_KEYWORDS
+    ];
+
+    cm.__cwPolishCompletionCache = {
+      candidates,
+      text,
+      line: cursor.line
+    };
+
+    return candidates;
+  }
+
+  function collectLocalIdentifiers(cm, cursor) {
+    const startLine = findLocalBlockStart(cm, cursor.line);
+    const endLine = findLocalBlockEnd(cm, cursor.line);
+    const text = cm.getRange({ line: startLine, ch: 0 }, { line: endLine, ch: cm.getLine(endLine).length });
+    return collectIdentifiers(text);
+  }
+
+  function collectPreprocessorIdentifiers(text) {
+    const identifiers = [];
+    const definePattern = /^\s*#\s*define\s+([A-Za-z_]\w*)/gm;
+    let match;
+
+    while ((match = definePattern.exec(text))) {
+      identifiers.push(match[1]);
+    }
+
+    return identifiers;
+  }
+
+  function findLocalBlockStart(cm, line) {
+    let depth = 0;
+
+    for (let index = line; index >= cm.firstLine(); index -= 1) {
+      const text = stripCCommentsAndStrings(cm.getLine(index));
+
+      for (let ch = text.length - 1; ch >= 0; ch -= 1) {
+        if (text[ch] === "}") depth += 1;
+        if (text[ch] === "{") {
+          if (depth === 0) return Math.max(cm.firstLine(), index - 1);
+          depth -= 1;
+        }
+      }
+    }
+
+    return cm.firstLine();
+  }
+
+  function findLocalBlockEnd(cm, line) {
+    let depth = 0;
+
+    for (let index = line; index <= cm.lastLine(); index += 1) {
+      const text = stripCCommentsAndStrings(cm.getLine(index));
+
+      for (let ch = 0; ch < text.length; ch += 1) {
+        if (text[ch] === "{") depth += 1;
+        if (text[ch] === "}") {
+          if (depth === 0) return index;
+          depth -= 1;
+          if (depth === 0) return index;
+        }
+      }
+    }
+
+    return cm.lastLine();
+  }
+
+  function collectIdentifiers(text) {
+    const identifiers = [];
+    const wordPattern = /\b[A-Za-z_]\w*\b/g;
+    const cleaned = stripCCommentsAndStrings(text);
+    let match;
+
+    while ((match = wordPattern.exec(cleaned))) {
+      identifiers.push(match[0]);
+    }
+
+    return identifiers;
+  }
+
+  function stripCCommentsAndStrings(text) {
+    return text
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\/\/.*/g, " ")
+      .replace(/"(?:\\.|[^"\\])*"/g, " ")
+      .replace(/'(?:\\.|[^'\\])*'/g, " ");
+  }
+
+  function currentPrefix(cm) {
+    const cursor = cm.getCursor();
+    const line = cm.getLine(cursor.line).slice(0, cursor.ch);
+    const match = line.match(/[A-Za-z_$][\w$]*$/);
+    return match ? match[0] : "";
+  }
+
+  function isCMode(cm) {
+    return languageKey(cm.getOption("mode")) === "c";
+  }
+
+  function languageKey(mode) {
+    const value = String(mode || "").toLowerCase();
+
+    if (value === "text/x-c" || value === "text/x-csrc" || value === "text/x-chdr") return "c";
+    return "";
+  }
+
+  function attachRunAutoFormat() {
+    if (!config.autoFormat || document.__cwPolishRunAutoFormat) return;
+    document.__cwPolishRunAutoFormat = true;
+
+    document.addEventListener(
+      "click",
+      (event) => {
+        if (!event.target.closest?.("#validate_btn, #attempt_btn, #submit_btn")) return;
+        const solutionEditor = document.querySelector(".CodeMirror")?.CodeMirror;
+        autoFormat(solutionEditor);
+      },
+      true
+    );
   }
 
   function ensureSparkLayer() {
@@ -605,6 +1065,7 @@
     removeAds();
     tuneEditors();
     tuneDescriptionScroll();
+    attachRunAutoFormat();
 
     [100, 300, 800, 1500, 3000].forEach((delay) => {
       window.setTimeout(() => {
